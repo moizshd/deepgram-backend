@@ -12,39 +12,29 @@ const wss = new Server({ server });
 
 wss.on('connection', (ws) => {
     console.log('Client connected');
+    var deepgramLive = deepgram.transcription.live({
+        punctuate: true, interim_results: true, endpointing: 300
+    });
 
-    let deepgramLive = null;
+    deepgramLive.addListener('transcriptReceived', (transcription) => {
+        if (ws.readyState === ws.OPEN) {
+            ws.send(transcription);
+        }
+    });
 
-    const startDeepgramLive = () => {
-        deepgramLive = deepgram.transcription.live({
-            punctuate: true, interim_results: true, endpointing: 300
-        });
-
-        deepgramLive.addListener('transcriptReceived', (transcription) => {
-            if (ws.readyState === ws.OPEN) {
-                console.log("Received transcription from Deepgram:", transcription);
-                ws.send(transcription);
-            } else {
-                console.log("WebSocket not open. Cannot send transcription.");
-            }
-        });
-
-        deepgramLive.addListener('error', (error) => {
-            console.error("Deepgram error:", error);
-        });
-    };
-
-    // Start a new session on connection
-    startDeepgramLive();
+    deepgramLive.addListener('error', (error) => {
+        console.error("Deepgram error:", error);
+    });
 
     ws.on('message', (message) => {
         if (typeof message !== 'string') {
-            console.log("Received audio data from client, size:", message.length);
+            // Handle binary audio data
             if (deepgramLive) {
                 try {
                     deepgramLive.send(message);
                 } catch (error) {
                     console.error("Error sending message to Deepgram:", error);
+                    // Consider restarting Deepgram live session here if needed
                 }
             }
         } else {
@@ -55,7 +45,10 @@ wss.on('connection', (ws) => {
                     console.log("Stopping transcription");
                     if (deepgramLive) {
                         deepgramLive.finish();
-                        deepgramLive = null; // Ensure deepgramLive is set to null
+                        // Delay starting a new session
+                        setTimeout(() => {
+                            deepgramLive = startDeepgramLive();
+                        }, 1000);
                     }
                 }
             } catch (error) {
@@ -63,7 +56,6 @@ wss.on('connection', (ws) => {
             }
         }
     });
-
     ws.on('close', () => {
         console.log("WebSocket connection closed");
         if (deepgramLive) {
